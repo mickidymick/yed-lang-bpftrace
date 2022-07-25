@@ -1,8 +1,12 @@
 #include <yed/plugin.h>
 
+static array_t extra_extensions;
+
 void unload(yed_plugin *self);
 void maybe_change_ft(yed_buffer *buff);
 void maybe_change_ft_event(yed_event *event);
+
+static void _add_extra_extensions(void);
 
 int yed_plugin_boot(yed_plugin *self) {
     tree_it(yed_buffer_name_t, yed_buffer_ptr_t) bit;
@@ -11,10 +15,14 @@ int yed_plugin_boot(yed_plugin *self) {
 
     YED_PLUG_VERSION_CHECK();
 
+    if (yed_get_var("lang-bpftrace-extensions") == NULL) {
+        yed_set_var("lang-bpftrace-extensions", "");
+    }
+
 LOG_FN_ENTER();
     yed_plugin_set_unload_fn(self, unload);
 
-    if (yed_plugin_make_ft(self, "S") == FT_ERR_TAKEN) {
+    if (yed_plugin_make_ft(self, "BPF") == FT_ERR_TAKEN) {
         yed_cerr("lang/s: unable to create file type name");
         LOG_EXIT();
         return 1;
@@ -36,10 +44,30 @@ LOG_EXIT();
     return 0;
 }
 
+static void _add_extra_extensions(void) {
+    char       *token;
+    char       *tmp;
+    const char  s[2] = " ";
+
+    if (array_len(extra_extensions) > 0) {
+        array_clear(extra_extensions);
+    }
+    extra_extensions = array_make(char *);
+    token = strtok(yed_get_var("lang-bpftrace-extensions"), s);
+    while(token != NULL) {
+        tmp = strdup(token);
+        array_push(extra_extensions, tmp);
+        token = strtok(NULL, s);
+    }
+}
+
 void unload(yed_plugin *self) {}
 
 void maybe_change_ft(yed_buffer *buff) {
     const char *ext;
+    char **extension;
+
+    _add_extra_extensions();
 
     if (buff->ft != FT_UNKNOWN) {
         return;
@@ -51,8 +79,13 @@ void maybe_change_ft(yed_buffer *buff) {
         return;
     }
 
-    if (strcmp(ext, "S") == 0) {
-        yed_buffer_set_ft(buff, yed_get_ft("S"));
+    yed_log("len%d\n", array_len(extra_extensions));
+    array_traverse(extra_extensions, extension) {
+        yed_log("%s %s\n", ext, extension);
+        if (strcmp(ext, (*extension)) == 0) {
+            yed_buffer_set_ft(buff, yed_get_ft("BPF"));
+            break;
+        }
     }
 }
 
